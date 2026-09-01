@@ -1,0 +1,199 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Georgia", serif;
+  background: #fafafa;
+  color: #1a1a1a;
+  line-height: 1.7;
+}
+
+header {
+  background: #003262; /* Berkeley blue */
+  color: #fff;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  position: relative;
+}
+
+.header-seal {
+  position: absolute;
+  top: 50%;
+  left: 1.5rem;
+  transform: translateY(-50%);
+  height: 130px;
+  width: 130px;
+  object-fit: contain;
+  opacity: 0.9;
+}
+
+header h1 {
+  font-size: 2rem;
+  font-weight: normal;
+  letter-spacing: 0.02em;
+}
+
+header p {
+  margin-top: 0.4rem;
+  font-size: 1rem;
+  opacity: 0.85;
+}
+
+nav {
+  background: #fdb515; /* Berkeley gold */
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 0.6rem 1rem;
+}
+
+nav a {
+  color: #003262;
+  text-decoration: none;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+nav a:hover {
+  text-decoration: underline;
+}
+
+#equipment {
+  margin-bottom: 2rem;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 0.88rem;
+  color: #555;
+}
+
+main {
+  max-width: 900px;
+  margin: 3rem auto;
+  padding: 0 1.5rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  font-weight: normal;
+  border-bottom: 2px solid #fdb515;
+  padding-bottom: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin: 1.8rem 0 0.6rem;
+  font-family: "Helvetica Neue", sans-serif;
+}
+
+p {
+  margin-bottom: 1rem;
+  font-size: 0.97rem;
+}
+
+section {
+  margin-bottom: 3rem;
+}
+
+.image-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.image-row figure {
+  flex: 1 1 280px;
+  text-align: center;
+}
+
+.image-row img {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.image-row figcaption {
+  font-size: 0.82rem;
+  color: #555;
+  margin-top: 0.4rem;
+  font-family: "Helvetica Neue", sans-serif;
+}
+
+.gif-container {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.gif-container img {
+  max-width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.gif-container figcaption {
+  font-size: 0.82rem;
+  color: #555;
+  margin-top: 0.4rem;
+  font-family: "Helvetica Neue", sans-serif;
+}
+
+/* Landing page project cards */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.project-card {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  transition: box-shadow 0.2s;
+}
+
+.project-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.project-card a {
+  display: block;
+  padding: 1.4rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.project-card .proj-number {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #888;
+  font-family: "Helvetica Neue", sans-serif;
+}
+
+.project-card h3 {
+  margin: 0.3rem 0 0.5rem;
+  font-size: 1.05rem;
+  color: #003262;
+}
+
+.project-card p {
+  font-size: 0.85rem;
+  color: #555;
+  margin: 0;
+}
+
+footer {
+  text-align: center;
+  padding: 2rem;
+  font-size: 0.82rem;
+  color: #999;
+  font-family: "Helvetica Neue", sans-serif;
+  border-top: 1px solid #eee;
+  margin-top: 3rem;
+}

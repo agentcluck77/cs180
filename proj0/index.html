@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proj 0: Becoming Friends with Your Camera — CS 180</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+
+<header>
+  <img src="../cal_seal.svg" alt="UC Berkeley seal" class="header-seal" />
+  <h1>Project 0: Becoming Friends with Your Camera</h1>
+  <p>University of California, Berkeley, Fall 2026 &nbsp;·&nbsp; Aloysius</p>
+</header>
+
+<nav>
+  <a href="../index.html">Home</a>
+  <a href="../proj0/index.html">Proj 0</a>
+</nav>
+
+<main>
+
+  <section id="equipment">
+    <p><strong>Camera:</strong> Olympus OM-D E-M10 Mark II &nbsp;·&nbsp; <strong>Lens:</strong> Olympus M.Zuiko Digital ED 12–40mm f/2.8 PRO</p>
+  </section>
+
+  <!-- ===================== PART 1 ===================== -->
+  <section id="part1">
+    <h2>Part 1: Focal Length and Selfies</h2>
+    <p>
+      <!-- Explain what you did and what you observed. -->
+      In this part I photographed the subject (myself) twice: once up close,
+      and once from several feet away using optical zoom to match the framing. The first shot
+      exaggerates facial features due to wide-angle perspective distortion, while the second
+      produces a more natural look.
+    </p>
+
+    <div class="image-row">
+      <figure>
+        <img src="images/part1_close.jpg" alt="Close-up shot, distorted" />
+        <figcaption>Close-up (12mm, wide angle)</figcaption>
+      </figure>
+      <figure>
+        <img src="images/part1_zoom.jpg" alt="Zoom shot from distance" />
+        <figcaption>Zoomed from a distance (40mm)</figcaption>
+      </figure>
+    </div>
+
+    <h3>Why does this happen?</h3>
+    <p>
+      <!-- Write your reflection here. -->
+      When photographing close with a wide lens, the center of projection is near the subject,
+      making parts closer to the camera appear disproportionately large. Moving farther away
+      and zooming in keeps the angle of view similar but places the center of projection much
+      farther from the subject, dramatically reducing the relative size difference between
+      foreground and background features.
+    </p>
+  </section>
+
+  <!-- ===================== PART 2 ===================== -->
+  <section id="part2">
+    <h2>Part 2: Perspective Compression</h2>
+    <p>
+      <!-- Explain what you did and what you observed. -->
+      Here I chose a building facade and first zoomed in from far away, then walked up close
+      and re-framed without zoom to approximate the same composition. The zoomed
+      shot shows strong perspective compression, as the facade appears flattened and parallel
+      lines look nearly parallel. The close-up shot reveals slightly stronger convergence.
+    </p>
+
+    <div class="image-row">
+      <figure>
+        <img src="images/part2_zoom.jpg" alt="Building zoomed from far" />
+        <figcaption>Zoomed in from far (40mm)</figcaption>
+      </figure>
+      <figure>
+        <img src="images/part2_close.jpg" alt="Building shot up close" />
+        <figcaption>Close without zoom (25mm)</figcaption>
+      </figure>
+    </div>
+
+    <h3>Analysis</h3>
+    <p>
+      <!-- Write your analysis here. -->
+      Telephoto lenses (or heavy zoom) compress depth because the angular difference between
+      near and far objects shrinks as distance increases. The 
+      converging lines and relative size of windows of a building are all reduced, making the facade look
+      like a flat graphic. Shooting close with a wide angle reverses this: depth cues, like facade lines, are
+      greatly amplified.
+    </p>
+  </section>
+
+  <!-- ===================== PART 3 ===================== -->
+  <section id="part3">
+    <h2>Part 3: Dolly Zoom</h2>
+    <p>
+      <!-- Explain your process. -->
+      To recreate the Vertigo/dolly zoom effect, I kept a foreground subject (AKA table salt) framed at roughly
+      the same size while moving forward, and zooming out and manual focusing simultaneously. The subject
+      stays constant in frame while the background objects dramatically changed in apparent scale.
+    </p>
+
+    <figure class="gif-container">
+      <img src="images/dolly_zoom.gif" alt="Dolly zoom animated GIF" />
+      <figcaption>Dolly zoom sequence, where subject stays constant, background shrinks.</figcaption>
+    </figure>
+
+    <h3>How it works</h3>
+    <p>
+      <!-- Write your explanation here. -->
+      As I moved forward, the center of projection approached the scene. Zooming out
+      simultaneously compensated so the subject's angular size stayed fixed. However,
+      background objects, being farther away, shrank relative to the subject because
+      the background's physical distance barely changed, relative to the zoom factor, 
+      so the zoom-out dominates and the background appears to recede.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  CS 180 &mdash; University of California, Berkeley &mdash; Fall 2026
+</footer>
+
+</body>
+</html>

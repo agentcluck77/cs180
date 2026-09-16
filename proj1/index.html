@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proj 1: Colorizing the Prokudin-Gorskii Collection · CS 180</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+
+<header>
+  <img src="../cal_seal.svg" alt="UC Berkeley seal" class="header-seal" />
+  <h1>Project 1: Images of the Russian Empire</h1>
+  <p>Colorizing the Prokudin-Gorskii Photo Collection &nbsp;·&nbsp; Fall 2026 &nbsp;·&nbsp; Aloysius</p>
+</header>
+
+<nav>
+  <a href="../index.html">Home</a>
+  <a href="../proj0/index.html">Proj 0</a>
+  <a href="index.html">Proj 1</a>
+</nav>
+
+<main>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>
+      Sergei Prokudin-Gorskii photographed Russia between 1907 and 1915 by exposing three
+      glass plates of the same scene through red, green, and blue filters. Each digitized
+      scan is one tall grayscale image with all three plates stacked B / G / R top to bottom.
+      For this project I wrote a pipeline that splits each scan into its three channels,
+      searches for the (dy, dx) shift that best lines G and R up with B, and merges the
+      result into a single color photo.     
+    </p>
+    <div class="image-row">
+      <figure>
+        <img src="gallery/extra/cathedral_naive.jpg" alt="Cathedral with no alignment" />
+        <figcaption>Raw stack, zero alignment: heavy color fringing</figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/cathedral.jpg" alt="Cathedral aligned" />
+        <figcaption>After alignment</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ===================== SINGLE SCALE ===================== -->
+  <section id="single-scale">
+    <h2>Single-Scale Alignment</h2>
+    <p>
+      I started with the two small JPEGs, since a bug here is a lot faster to spot on a
+      390px-wide image than a 9800px one. For each channel I exhaustively try every
+      displacement in a &plusmn;15&nbsp;pixel window and score it with a matching metric,
+      computed only on the <em>interior</em> of the image. The outer 10% gets cropped
+      before scoring, since plate borders and scan artifacts would otherwise dominate the
+      score and drag the search toward the wrong answer. Two metrics:
+    </p>
+    <ul>
+      <li><strong>SSD / L2 norm:</strong> <code>sqrt(sum((image1 - image2)&sup2;))</code>, lower is better.</li>
+      <li><strong>NCC:</strong> dot product of the two mean-subtracted, unit-normalized images, higher is better.</li>
+    </ul>
+    <p>Both metrics agree exactly on all three low-resolution images:</p>
+    <table>
+      <thead><tr><th>Image</th><th>G offset (dy, dx)</th><th>R offset (dy, dx)</th></tr></thead>
+      <tbody>
+        <tr><td>cathedral.jpg</td><td>(5, 2)</td><td>(12, 3)</td></tr>
+        <tr><td>monastery.jpg</td><td>(&minus;3, 2)</td><td>(3, 2)</td></tr>
+        <tr><td>tobolsk.jpg</td><td>(3, 3)</td><td>(6, 3)</td></tr>
+      </tbody>
+    </table>
+    <div class="image-row">
+      <figure><img src="gallery/cathedral.jpg" alt="cathedral aligned" /><figcaption>cathedral.jpg</figcaption></figure>
+      <figure><img src="gallery/monastery.jpg" alt="monastery aligned" /><figcaption>monastery.jpg</figcaption></figure>
+      <figure><img src="gallery/tobolsk.jpg" alt="tobolsk aligned" /><figcaption>tobolsk.jpg</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ===================== PYRAMID ===================== -->
+  <section id="pyramid">
+    <h2>Multi-Scale Pyramid Alignment</h2>
+    <p>
+      A &plusmn;15px brute-force search works fine on a small JPEG, but it falls apart on the
+      full-resolution <code>.tif</code> scans (up to ~9800&times;3800), where the true offset
+      can be well over 150px, and the exhaustive search is both too slow at that resolution
+      and too narrow to even find the right answer. So instead I built a coarse-to-fine image
+      pyramid: shrink both channels by 2&times; (<code>cv2.resize</code> with
+      <code>INTER_AREA</code>), recursively solve the same problem on the smaller image, then
+      scale that estimate back up and refine it with a small local search at the current
+      resolution. This bottoms out once an image is under 400px, where a direct search
+      (radius 30) runs as the base case. Each image, no matter the resolution, aligns in
+      under 2 seconds.
+    </p>
+    <table>
+      <thead><tr><th>Image</th><th>G offset (dy, dx)</th><th>R offset (dy, dx)</th></tr></thead>
+      <tbody>
+        <tr><td>church.tif</td><td>(25, 4)</td><td>(58, &minus;4)</td></tr>
+        <tr><td>emir.tif</td><td>(49, 24)</td><td>(107, 40)</td></tr>
+        <tr><td>harvesters.tif</td><td>(60, 17)</td><td>(124, 14)</td></tr>
+        <tr><td>icon.tif</td><td>(42, 17)</td><td>(90, 23)</td></tr>
+        <tr><td>ilemselga.tif</td><td>(40, 7)</td><td>(131, 11)</td></tr>
+        <tr><td>melons.tif</td><td>(80, 10)</td><td>(177, 13)</td></tr>
+        <tr><td>religous_painting.tif</td><td>(30, 7)</td><td>(70, 6)</td></tr>
+        <tr><td>self_portrait.tif</td><td>(78, 29)</td><td>(176, 37)</td></tr>
+        <tr><td>siren.tif</td><td>(49, &minus;6)</td><td>(96, &minus;24)</td></tr>
+        <tr><td>three_generations.tif</td><td>(54, 12)</td><td>(111, 9)</td></tr>
+        <tr><td>wharf.tif</td><td>(15, &minus;7)</td><td>(83, &minus;16)</td></tr>
+      </tbody>
+    </table>
+    <div class="thumb-grid">
+      <figure><img src="gallery/church.jpg" /><figcaption>church.tif</figcaption></figure>
+      <figure><img src="gallery/emir.jpg" /><figcaption>emir.tif</figcaption></figure>
+      <figure><img src="gallery/harvesters.jpg" /><figcaption>harvesters.tif</figcaption></figure>
+      <figure><img src="gallery/icon.jpg" /><figcaption>icon.tif</figcaption></figure>
+      <figure><img src="gallery/ilemselga.jpg" /><figcaption>ilemselga.tif</figcaption></figure>
+      <figure><img src="gallery/melons.jpg" /><figcaption>melons.tif</figcaption></figure>
+      <figure><img src="gallery/religous_painting.jpg" /><figcaption>religous_painting.tif</figcaption></figure>
+      <figure><img src="gallery/self_portrait.jpg" /><figcaption>self_portrait.tif</figcaption></figure>
+      <figure><img src="gallery/siren.jpg" /><figcaption>siren.tif</figcaption></figure>
+      <figure><img src="gallery/three_generations.jpg" /><figcaption>three_generations.tif</figcaption></figure>
+      <figure><img src="gallery/wharf.jpg" /><figcaption>wharf.tif</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ===================== SSD vs NCC ===================== -->
+  <section id="metrics">
+    <h2>SSD vs. NCC: They Don't Always Agree</h2>
+    <p>
+      On most images SSD and NCC land on the exact same answer, which was reassuring the
+      first time I checked. <code>church.tif</code> was the one that broke that streak, and
+      the reason why was surprising to me. 
+    </p>
+    <div class="image-row">
+      <figure>
+        <img src="gallery/extra/church_ssd.jpg" alt="church aligned with SSD" />
+        <figcaption>SSD: R offset (64, 267), wrong</figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/extra/church_ncc.jpg" alt="church aligned with NCC" />
+        <figcaption>NCC: R offset (58, &minus;4), correct</figcaption>
+      </figure>
+    </div>
+    <h3>Why does SSD get it wrong here?</h3>
+    <p>
+      My first guess was that the search window was too small and SSD had just gotten stuck
+      at the edge of it. But widening the radius from 15 to 60 gave the exact same
+      answer. The real cause was that the B and R plates for this particular scan
+      differ noticeably in average brightness (mean pixel value ~47000 vs. ~33000 out of
+      65535). L2 norms punishes brightness mismatch just as much as structural
+      mismatch, so SSD can get pulled toward a shift that happens to average out the
+      brightness gap rather than the shift that actually lines up the church and the water.
+      NCC mean-subtracts and normalizes both images before comparing, so a flat brightness
+      offset disappears entirely and only the shape of the image matters. 
+    </p>
+    <p class="note">
+      Per the assignment, every image above is still documented with plain L2/NCC results
+      even where a more advanced metric (gradient-based, see below) was used for the final
+      output.
+    </p>
+  </section>
+
+  <!-- ===================== FAILURE CASE ===================== -->
+  <section id="failure">
+    <h2>Failure Case: emir.tif</h2>
+    <p>
+      <code>emir.tif</code> (the Emir of Bukhara) is a difficult case.
+      NCC on raw pixel values here seems to not work.
+      This isn't a brightness offset issue like <code>church.tif</code>. The
+      R-channel plate simply captured different detail than B and G. Raw-pixel
+      alignment locks onto <code>R offset (416, &minus;455)</code>, a shift bigger than the
+      image itself is wide.
+    </p>
+    <div class="image-row">
+      <figure>
+        <img src="gallery/bells_whistles/emir_0_features_before_raw.jpg" alt="emir raw pixel alignment, broken" />
+        <figcaption>Raw-pixel NCC: R offset (416, &minus;455)</figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/bells_whistles/emir_0_features_after_gradient.jpg" alt="emir gradient alignment, fixed" />
+        <figcaption>Gradient-based: R offset (107, 40)</figcaption>
+      </figure>
+    </div>
+    <h3>How I fixed it</h3>
+    <p>
+      This is why i attempted to build the "Better Features" bells &amp; whistle below:
+      instead of scoring alignment on raw pixel brightness, I score it on Sobel edge/gradient
+      magnitude. Edges (where the door frame ends, where a fold in the robe falls)
+      are far more consistent across channels than raw intensity ever is, even when
+      the channels disagree on exposure. Switching to gradients fixed emir.tif outright, and
+      I liked the result enough that it's now the default alignment strategy for every image
+      on this page, not just this one. With it applied everywhere, all 14 provided images
+      align correctly, with no remaining failures.
+    </p>
+  </section>
+
+  <!-- ===================== BELLS & WHISTLES ===================== -->
+  <section id="bells">
+    <h2>Bells &amp; Whistles</h2>
+
+    <h3>1. Better Features</h3>
+    <p>
+      Covered above (see <a href="#failure">Failure Case</a>)
+    </p>
+
+    <h3>2. Automatic Cropping</h3>
+    <p>
+      I didn't want to just chop off a fixed percentage from each side, so instead I detect
+      the border by computing gradient energy per row/column: real photo content has texture
+      (high gradient energy), while the plate's border and the color fringe left behind by
+      the <code>np.roll</code> wrap-around is close to flat (low gradient energy). Each edge
+      gets trimmed inward until the energy crosses 10% of that edge's peak, capped at 15% of
+      the image so an edge case image can't trick it into cropping the whole photo.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/bells_whistles/cathedral_1_crop_before.jpg" /><figcaption>Before crop</figcaption></figure>
+      <figure><img src="gallery/bells_whistles/cathedral_1_crop_after.jpg" /><figcaption>After crop</figcaption></figure>
+    </div>
+
+    <h3>3. Automatic Contrasting</h3>
+    <p>
+      The 0.5th percentile of intensity maps to 0, the 99.5th maps to 255.
+      I used percentiles instead of the true min/max after noticing a couple of scans have a
+      single stray dead or hot pixel that would otherwise anchor the whole stretch and barely
+      move anything else.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/bells_whistles/icon_2_contrast_before.jpg" /><figcaption>Before contrast stretch</figcaption></figure>
+      <figure><img src="gallery/bells_whistles/icon_2_contrast_after.jpg" /><figcaption>After contrast stretch</figcaption></figure>
+    </div>
+
+    <h3>4. Automatic White Balance</h3>
+    <p>
+      Gray-world assumption: scale each channel so its mean matches the average of all three
+      channel means. Simple to implement, and it does a decent job pulling an overall color
+      cast back toward neutral.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/bells_whistles/icon_3_whitebalance_before.jpg" /><figcaption>Before white balance</figcaption></figure>
+      <figure><img src="gallery/bells_whistles/icon_3_whitebalance_after.jpg" /><figcaption>After white balance</figcaption></figure>
+    </div>
+
+    <h3>5. Better Color Mapping</h3>
+    <p>
+      Prokudin-Gorskii's glass filters weren't perfectly narrowband, so each plate picks up
+      some spectral "bleed" from its neighbors, muddying the final colors. I apply a simple
+      decorrelation matrix that nudges each channel away from the average of the other two,
+      which boosts color separation without needing to know the actual filter response
+      curves (which I don't have):
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/bells_whistles/icon_4_colormap_before.jpg" /><figcaption>Before color mapping</figcaption></figure>
+      <figure><img src="gallery/bells_whistles/icon_4_colormap_after.jpg" /><figcaption>After color mapping (more saturated, separated colors)</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ===================== SELF-CHOSEN IMAGES ===================== -->
+  <section id="own-images">
+    <h2>My Own Selections from the LoC Collection</h2>
+    <p>
+      Three more plates I picked from the
+      <a href="https://www.loc.gov/pictures/collection/prok/" target="_blank" rel="noopener">Library of Congress Prokudin-Gorskii collection</a>,
+      run through the exact same pyramid pipeline as everything above, no special-casing.
+    </p>
+    <table>
+      <thead><tr><th>Image</th><th>G offset (dy, dx)</th><th>R offset (dy, dx)</th></tr></thead>
+      <tbody>
+        <tr><td>dagestan (&laquo;&#1040;&#1091;&#1083; &#1053;&#1080;&#1078;&#1085;&#1080;&#1081; &#1043;&#1091;&#1085;&#1080;&#1073; &#1074; &#1044;&#1072;&#1075;&#1077;&#1089;&#1090;&#1072;&#1085;&#1077;&raquo; / &ldquo;The village of Nizhny Gunib in Dagestan&rdquo;)</td><td>(32, 0)</td><td>(134, &minus;1)</td></tr>
+        <tr><td>petrozavodska (&laquo;&#1053;&#1072; &#1076;&#1088;&#1077;&#1079;&#1080;&#1085;&#1077; &#1091; &#1055;&#1077;&#1090;&#1088;&#1086;&#1079;&#1072;&#1074;&#1086;&#1076;&#1089;&#1082;&#1072; &#1087;&#1086; &#1052;&#1091;&#1088;&#1084;&#1072;&#1085;&#1089;&#1082;&#1086;&#1081; &#1078;&#1077;&#1083;&#1077;&#1079;&#1085;&#1086;&#1081; &#1076;&#1086;&#1088;&#1086;&#1075;&#1077;&raquo; / &ldquo;On a handcar near Petrozavodsk, along the Murmansk railway&rdquo;)</td><td>(28, &minus;8)</td><td>(108, &minus;19)</td></tr>
+        <tr><td>kompaund (&laquo;&#1055;&#1072;&#1088;&#1086;&#1074;&#1086;&#1079; &#171;&#1050;&#1086;&#1084;&#1087;&#1072;&#1091;&#1085;&#1076;&#187; &#1089; &#1087;&#1072;&#1088;&#1086;&#1087;&#1077;&#1088;&#1077;&#1075;&#1088;&#1077;&#1074;&#1072;&#1090;&#1077;&#1083;&#1077;&#1084; &#1064;&#1084;&#1080;&#1076;&#1090;&#1072;&raquo; / &ldquo;Locomotive &lsquo;Compound&rsquo; with Schmidt superheater&rdquo;)</td><td>(41, 2)</td><td>(85, 29)</td></tr>
+      </tbody>
+    </table>
+    <div class="thumb-grid">
+      <figure>
+        <img src="gallery/dagestan.jpg" alt="Aul Nizhnii Gunib in Dagestan" />
+        <figcaption>&#1040;&#1091;&#1083; &#1053;&#1080;&#1078;&#1085;&#1080;&#1081; &#1043;&#1091;&#1085;&#1080;&#1073; &#1074; &#1044;&#1072;&#1075;&#1077;&#1089;&#1090;&#1072;&#1085;&#1077;<br />The village of Nizhny Gunib in Dagestan</figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/petrozavodska.jpg" alt="Railroad handcar near Petrozavodsk" />
+        <figcaption>&#1053;&#1072; &#1076;&#1088;&#1077;&#1079;&#1080;&#1085;&#1077; &#1091; &#1055;&#1077;&#1090;&#1088;&#1086;&#1079;&#1072;&#1074;&#1086;&#1076;&#1089;&#1082;&#1072; &#1087;&#1086; &#1052;&#1091;&#1088;&#1084;&#1072;&#1085;&#1089;&#1082;&#1086;&#1081; &#1078;&#1077;&#1083;&#1077;&#1079;&#1085;&#1086;&#1081; &#1076;&#1086;&#1088;&#1086;&#1075;&#1077;<br />On a handcar near Petrozavodsk, along the Murmansk railway</figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/kompaund.jpg" alt="Kompaund steam locomotive" />
+        <figcaption>&#1055;&#1072;&#1088;&#1086;&#1074;&#1086;&#1079; &#171;&#1050;&#1086;&#1084;&#1087;&#1072;&#1091;&#1085;&#1076;&#187; &#1089; &#1087;&#1072;&#1088;&#1086;&#1087;&#1077;&#1088;&#1077;&#1075;&#1088;&#1077;&#1074;&#1072;&#1090;&#1077;&#1083;&#1077;&#1084; &#1064;&#1084;&#1080;&#1076;&#1090;&#1072;<br />Locomotive &ldquo;Compound&rdquo; with Schmidt superheater</figcaption>
+      </figure>
+    </div>
+    <p>
+      All three aligned cleanly on the first try. That
+      makes sense given none of them have the two failure modes I ran into above: no moving
+      people close to the camera (unlike <code>three_generations.tif</code>), and no obvious
+      brightness mismatch between plates (unlike <code>church.tif</code> and
+      <code>emir.tif</code>).
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  CS 180 &nbsp;·&nbsp; University of California, Berkeley &nbsp;·&nbsp; Fall 2026
+</footer>
+
+</body>
+</html>

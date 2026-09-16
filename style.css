@@ -188,6 +188,71 @@ section {
   margin: 0;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 1.5rem;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 0.85rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid #eee;
+}
+
+th {
+  color: #003262;
+  border-bottom: 2px solid #fdb515;
+  font-weight: 600;
+}
+
+tr:hover td {
+  background: #fafafa;
+}
+
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.thumb-grid figure {
+  margin: 0;
+  text-align: center;
+}
+
+.thumb-grid img {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.thumb-grid figcaption {
+  font-size: 0.8rem;
+  color: #555;
+  margin-top: 0.3rem;
+  font-family: "Helvetica Neue", sans-serif;
+}
+
+.note {
+  background: #fff8e6;
+  border-left: 3px solid #fdb515;
+  padding: 0.8rem 1rem;
+  font-size: 0.88rem;
+  margin: 1rem 0;
+}
+
+.fail {
+  background: #fdeeee;
+  border-left: 3px solid #c0392b;
+  padding: 0.8rem 1rem;
+  font-size: 0.88rem;
+  margin: 1rem 0;
+}
+
 footer {
   text-align: center;
   padding: 2rem;

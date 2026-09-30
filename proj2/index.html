@@ -167,6 +167,27 @@ def conv2d_2loop(image, kernel):
       <figure><img src="gallery/1_3_dx_dog.jpg" /><figcaption>image &circledast; DoG<sub>x</sub></figcaption></figure>
       <figure><img src="gallery/1_3_grad_mag_dog.jpg" /><figcaption>gradient magnitude (single-conv)</figcaption></figure>
     </div>
+
+    <h3>Bells &amp; Whistles: gradient orientation in HSV</h3>
+    <p>
+      Orientation is a cyclic quantity (0&deg; and 360&deg; are the same direction), so it maps
+      naturally onto hue, which is also cyclic. I did not call <code>np.arctan2</code>; instead I
+      rebuilt the same four-quadrant angle from <code>arcsin(D<sub>y</sub> / magnitude)</code>, mirrored
+      across the y-axis when <code>D<sub>x</sub> &lt; 0</code>, then normalized to [0, 1) and fed
+      it through matplotlib's <code>hsv</code> colormap, which is cyclic so the wraparound at
+      0&deg;/360&deg; shows no seam. Brightness is scaled by gradient magnitude so flat regions
+      (no real orientation to show) fade to black instead of displaying noise-colored static.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/1_bells_orientation_legend.png" /><figcaption>hue &rarr; orientation legend</figcaption></figure>
+      <figure><img src="gallery/1_bells_gradient_orientation.png" /><figcaption>cameraman, colored by gradient orientation</figcaption></figure>
+    </div>
+    <p>
+      The tripod's legs run diagonally and pick up a distinctly different hue from the
+      near-horizontal skyline in the background, and the two edges of the man's coat (which
+      run in roughly opposite directions) show up as roughly complementary colors, exactly as
+      the hue wheel predicts.
+    </p>
   </section>
 
   <!-- ===================== PART 2.1 ===================== -->
@@ -302,6 +323,27 @@ def conv2d_2loop(image, kernel):
       to click two opposite edge points instead, the left rim and the right rim. That is the
       correct equivalent of "left eye, right eye" for a round object.
     </p>
+
+    <h3>Bells &amp; Whistles: does color help hybrid images?</h3>
+    <p>
+      Using the Derek and Nutmeg pair, I tried three variants: color in both the high and low
+      frequency image, color only in the low-frequency image (high-frequency image converted
+      to grayscale first), and color only in the high-frequency image.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/2_2_derek_nutmeg_hybrid_color_both.jpg" /><figcaption>color in both</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_hybrid_color_low_only.jpg" /><figcaption>color in low freq. only</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_hybrid_color_high_only.jpg" /><figcaption>color in high freq. only</figcaption></figure>
+    </div>
+    <p>
+      Color in the low-frequency image only looks almost as natural as color in both. Color in
+      the high-frequency image only looks noticeably washed out and gray. This makes sense: a
+      photo's overall color (skin tone, hair color) is mostly a low-frequency property, since
+      color tends to change smoothly across a surface, while the high frequencies mostly carry
+      fine grayscale texture and edges. So for the best-looking hybrid, color is worth keeping
+      in the low-frequency image and can be dropped from the high-frequency image with very
+      little visible loss.
+    </p>
   </section>
 
   <!-- ===================== PART 2.3 ===================== -->
@@ -360,6 +402,24 @@ def laplacian_stack(gstack):
       <img src="gallery/2_4_oraple_process.png" alt="oraple blending process" />
       <figcaption>Masked inputs, per-level Laplacian contributions, and the final blend (Burt &amp; Adelson Fig. 10 style).</figcaption>
     </div>
+
+    <h3>Bells &amp; Whistles: does color help blending?</h3>
+    <p>
+      All the blends on this page are already done in full color, so as a bells and whistle I
+      built a grayscale-only version of the oraple to see how much color is actually doing.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/2_4_oraple_result.jpg" /><figcaption>color</figcaption></figure>
+      <figure><img src="gallery/2_4_oraple_result_grayscale.jpg" /><figcaption>grayscale</figcaption></figure>
+    </div>
+    <p>
+      In grayscale, the apple and the orange are almost the same brightness, so the seam barely
+      reads as "two different fruits" at all, it just looks like a slightly odd single object.
+      Color is doing most of the work of selling the illusion here, which makes sense: unlike a
+      hybrid image (which relies on the frequency content itself), a fruit blend relies on the
+      two source images actually looking different, and for these two fruits, color is by far
+      their biggest visible difference.
+    </p>
 
     <h3>Lemon and lime (my own straight seam)</h3>
     <div class="image-row">

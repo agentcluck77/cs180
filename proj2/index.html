@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proj 2: Fun with Filters and Frequencies · CS 180</title>
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+</head>
+<body>
+
+<header>
+  <img src="../cal_seal.svg" alt="UC Berkeley seal" class="header-seal" />
+  <h1>Project 2: Fun with Filters and Frequencies</h1>
+  <p>Convolutions, edges, sharpening, hybrid images, and multiresolution blending &nbsp;·&nbsp; Fall 2026 &nbsp;·&nbsp; Aloysius</p>
+</header>
+
+<nav>
+  <a href="../index.html">Home</a>
+  <a href="../proj0/index.html">Proj 0</a>
+  <a href="../proj1/index.html">Proj 1</a>
+  <a href="index.html">Proj 2</a>
+</nav>
+
+<main>
+
+  <!-- ===================== PART 1.1 ===================== -->
+  <section id="p1-1">
+    <h2>Part 1.1: Convolutions from Scratch</h2>
+    <p>
+      A 2D convolution flips the kernel and slides it over a zero-padded image, taking a
+      dot product at every position. I implemented it two ways. The first uses four nested
+      <code>for</code> loops, two over output pixels and two over kernel taps. The second is
+      a vectorized version that keeps only the two loops over kernel taps, and lets numpy's
+      array slicing handle the loop over output pixels.
+    </p>
+    <pre><code class="language-python">def conv2d_4loop(image, kernel):
+    H, W = image.shape
+    kh, kw = kernel.shape
+    ph, pw = kh // 2, kw // 2
+    padded = np.pad(image, ((ph, ph), (pw, pw)))
+    flipped = kernel[::-1, ::-1]
+    out = np.zeros((H, W))
+    for i in range(H):
+        for j in range(W):
+            acc = 0.0
+            for m in range(kh):
+                for n in range(kw):
+                    acc += padded[i + m, j + n] * flipped[m, n]
+            out[i, j] = acc
+    return out
+
+def conv2d_2loop(image, kernel):
+    H, W = image.shape
+    kh, kw = kernel.shape
+    ph, pw = kh // 2, kw // 2
+    padded = np.pad(image, ((ph, ph), (pw, pw)))
+    flipped = kernel[::-1, ::-1]
+    out = np.zeros((H, W))
+    for m in range(kh):
+        for n in range(kw):
+            out += flipped[m, n] * padded[m : m + H, n : n + W]
+    return out</code></pre>
+    <p>
+      Both use zero padding of <code>kernel_size // 2</code> on each side, so the output
+      stays the same size as the input. Boundary pixels effectively see black outside the
+      frame. This slightly darkens filter responses right at the edge, but keeps the indexing
+      simple. I checked both against <code>scipy.signal.convolve2d</code> on a 96&times;96 test
+      image with the 9&times;9 box filter below. All three agree to within
+      <code>1.3&times;10<sup>&minus;15</sup></code>, which is just floating point noise. The
+      vectorized version is about <strong>250&times; faster</strong> than the four-loop version at
+      this tiny test size, and the gap only grows for bigger images. Python-level loops over
+      every output pixel dominate runtime, while numpy's slicing pushes the equivalent work
+      into C.
+    </p>
+    <table>
+      <thead><tr><th>Implementation</th><th>Time (96&times;96 image, 9&times;9 kernel)</th></tr></thead>
+      <tbody>
+        <tr><td>4-loop (naive)</td><td>162.5 ms</td></tr>
+        <tr><td>2-loop (vectorized)</td><td>0.65 ms</td></tr>
+        <tr><td><code>scipy.signal.convolve2d</code></td><td>0.91 ms</td></tr>
+      </tbody>
+    </table>
+    <p>I ran the 2-loop version on a self-portrait with a 9&times;9 box filter and the finite difference operators <code>D<sub>x</sub> = [1, -1]</code> and <code>D<sub>y</sub> = [1, -1]<sup>T</sup></code>.</p>
+    <div class="image-row">
+      <figure><img src="gallery/1_1_self_portrait_gray.jpg" /><figcaption>original (grayscale)</figcaption></figure>
+      <figure><img src="gallery/1_1_box_filtered.jpg" /><figcaption>9&times;9 box filter</figcaption></figure>
+      <figure><img src="gallery/1_1_dx.jpg" /><figcaption>D<sub>x</sub></figcaption></figure>
+      <figure><img src="gallery/1_1_dy.jpg" /><figcaption>D<sub>y</sub></figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ===================== PART 1.2 ===================== -->
+  <section id="p1-2">
+    <h2>Part 1.2: Finite Difference Operator</h2>
+    <p>
+      Convolving the cameraman image with <code>D<sub>x</sub></code> and <code>D<sub>y</sub></code>
+      gives the partial derivatives. The gradient magnitude
+      <code>sqrt(D<sub>x</sub>&sup2; + D<sub>y</sub>&sup2;)</code> combines them into a single
+      edge-strength map, which I then binarize with a threshold.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/1_2_cameraman_gray.jpg" /><figcaption>original</figcaption></figure>
+      <figure><img src="gallery/1_2_dx.jpg" /><figcaption>D<sub>x</sub></figcaption></figure>
+      <figure><img src="gallery/1_2_dy.jpg" /><figcaption>D<sub>y</sub></figcaption></figure>
+      <figure><img src="gallery/1_2_grad_mag.jpg" /><figcaption>gradient magnitude</figcaption></figure>
+    </div>
+    <p>I tried five thresholds to find the right balance between noise and detail.</p>
+    <div class="thumb-grid">
+      <figure><img src="gallery/1_2_edges_t0.10.jpg" /><figcaption>t = 0.10</figcaption></figure>
+      <figure><img src="gallery/1_2_edges_t0.15.jpg" /><figcaption>t = 0.15</figcaption></figure>
+      <figure><img src="gallery/1_2_edges_t0.20.jpg" /><figcaption>t = 0.20</figcaption></figure>
+      <figure><img src="gallery/1_2_edges_t0.25.jpg" /><figcaption>t = 0.25 (chosen)</figcaption></figure>
+      <figure><img src="gallery/1_2_edges_t0.30.jpg" /><figcaption>t = 0.30</figcaption></figure>
+    </div>
+    <p>
+      I picked <strong>t = 0.25</strong>. Below it, the grass and the coat are covered in
+      salt-and-pepper sensor noise. Above it, at t = 0.30, real structure, part of the skyline
+      building, starts to disappear. 0.25 is the point where the noise is mostly gone but the
+      camera, tripod, and skyline edges are all still intact.
+    </p>
+  </section>
+
+  <!-- ===================== PART 1.3 ===================== -->
+  <section id="p1-3">
+    <h2>Part 1.3: Derivative of Gaussian (DoG) Filter</h2>
+    <p>
+      Raw finite differences are noisy because they respond to every single-pixel intensity
+      jump, real edge or not. Smoothing with a Gaussian first suppresses that noise before
+      differentiating. I built the 2D Gaussian as an outer product of a 1D kernel from
+      <code>cv2.getGaussianKernel</code>.
+    </p>
+    <pre><code class="language-python">def gaussian_kernel_2d(ksize, sigma):
+    k1d = cv2.getGaussianKernel(ksize, sigma)
+    return k1d @ k1d.T</code></pre>
+    <div class="image-row">
+      <figure><img src="gallery/1_3_gaussian_kernel.jpg" /><figcaption>Gaussian kernel G (9&times;9, &sigma;=2)</figcaption></figure>
+      <figure><img src="gallery/1_3_blurred.jpg" /><figcaption>cameraman &circledast; G</figcaption></figure>
+    </div>
+    <p>I repeated the D<sub>x</sub>, D<sub>y</sub>, and gradient magnitude steps on the blurred image.</p>
+    <div class="image-row">
+      <figure><img src="gallery/1_3_dx_blurred.jpg" /><figcaption>D<sub>x</sub> of blurred</figcaption></figure>
+      <figure><img src="gallery/1_3_dy_blurred.jpg" /><figcaption>D<sub>y</sub> of blurred</figcaption></figure>
+      <figure><img src="gallery/1_3_grad_mag_blurred.jpg" /><figcaption>gradient magnitude</figcaption></figure>
+      <figure><img src="gallery/1_3_edges_final.jpg" /><figcaption>binarized, t = 0.10</figcaption></figure>
+    </div>
+
+    <h3>How does this compare to Part 1.2?</h3>
+    <p>
+      The pre-blur noticeably cleans up the edge map. The grass and coat texture noise that
+      survived even the best threshold in 1.2 is almost entirely gone here, and a much lower
+      threshold (0.10 instead of 0.25) still isolates the real edges. The tradeoff is that
+      edges get a bit thicker and rounder, since the blur smears out the sharp intensity jump
+      before differentiating.
+    </p>
+    <p>
+      Convolution is associative, so blurring and then differentiating should give the same
+      result as differentiating with one combined filter:
+      <code>D<sub>x</sub> &circledast; (G &circledast; I) = (D<sub>x</sub> &circledast; G) &circledast; I</code>.
+      I built that combined <em>derivative-of-Gaussian</em> filter directly, and confirmed it
+      reproduces the same result as the two-step version to within
+      <code>6.6&times;10<sup>&minus;16</sup></code>.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/1_3_dog_x_kernel.jpg" /><figcaption>DoG<sub>x</sub> = D<sub>x</sub> &circledast; G</figcaption></figure>
+      <figure><img src="gallery/1_3_dog_y_kernel.jpg" /><figcaption>DoG<sub>y</sub> = D<sub>y</sub> &circledast; G</figcaption></figure>
+      <figure><img src="gallery/1_3_dx_dog.jpg" /><figcaption>image &circledast; DoG<sub>x</sub></figcaption></figure>
+      <figure><img src="gallery/1_3_grad_mag_dog.jpg" /><figcaption>gradient magnitude (single-conv)</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ===================== PART 2.1 ===================== -->
+  <section id="p2-1">
+    <h2>Part 2.1: Image "Sharpening"</h2>
+    <p>
+      A Gaussian filter is a low-pass filter, so subtracting the blurred image from the
+      original isolates the high frequencies. Unsharp masking adds a scaled copy of those
+      high frequencies back on top: <code>sharpened = image + &alpha;(image &minus; blurred)</code>.
+      Since the whole operation is linear, it folds into a <em>single</em> convolution with the
+      kernel <code>(1+&alpha;)&middot;impulse &minus; &alpha;&middot;G</code>.
+    </p>
+    <p>On the provided Taj Mahal photo, increasing &alpha; sharpens the image more and more.</p>
+    <div class="thumb-grid">
+      <figure><img src="gallery/2_1_taj_original.jpg" /><figcaption>original</figcaption></figure>
+      <figure><img src="gallery/2_1_taj_blurred.jpg" /><figcaption>blurred (low freq.)</figcaption></figure>
+      <figure><img src="gallery/2_1_taj_sharpened_a0.5.jpg" /><figcaption>&alpha; = 0.5</figcaption></figure>
+      <figure><img src="gallery/2_1_taj_sharpened_a1.0.jpg" /><figcaption>&alpha; = 1.0</figcaption></figure>
+      <figure><img src="gallery/2_1_taj_sharpened_a2.0.jpg" /><figcaption>&alpha; = 2.0</figcaption></figure>
+      <figure><img src="gallery/2_1_taj_sharpened_a4.0.jpg" /><figcaption>&alpha; = 4.0 (over-sharpened, ringing)</figcaption></figure>
+    </div>
+    <p>Same pipeline on a self-portrait of my own.</p>
+    <div class="thumb-grid">
+      <figure><img src="gallery/2_1_selfportrait_original.jpg" /><figcaption>original</figcaption></figure>
+      <figure><img src="gallery/2_1_selfportrait_highfreq.jpg" /><figcaption>high frequencies (renormalized)</figcaption></figure>
+      <figure><img src="gallery/2_1_selfportrait_sharpened_a1.0.jpg" /><figcaption>&alpha; = 1.0</figcaption></figure>
+      <figure><img src="gallery/2_1_selfportrait_sharpened_a4.0.jpg" /><figcaption>&alpha; = 4.0</figcaption></figure>
+    </div>
+    <p>
+      By &alpha; = 4 both images show visible ringing along strong edges, like the dome outline
+      and the jacket collar. This is a known artifact of pushing unsharp masking too far.
+      &alpha; around 1 to 2 looks the most natural.
+    </p>
+    <h3>Can you un-blur a blurred image?</h3>
+    <p>
+      I blurred my self-portrait, then tried to sharpen it back with the same technique
+      (&alpha; = 2).
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/2_1_selfportrait_original.jpg" /><figcaption>original</figcaption></figure>
+      <figure><img src="gallery/2_1_eval_blurred.jpg" /><figcaption>blurred</figcaption></figure>
+      <figure><img src="gallery/2_1_eval_resharpened.jpg" /><figcaption>resharpened (&alpha;=2)</figcaption></figure>
+    </div>
+    <p>
+      Mean absolute pixel difference from the true original dropped from <strong>0.0152</strong>
+      (blurred) to <strong>0.0123</strong> (resharpened). That is some improvement, but far from
+      a full recovery. This makes sense: a Gaussian blur is a lossy operation that genuinely
+      destroys high-frequency information rather than just hiding it, so it cannot really be
+      undone. Unsharp masking can only boost whatever faint high-frequency residual survived
+      the blur. It cannot reconstruct detail that is actually gone. The resharpened hair and
+      jacket-zipper edges look crisper than the blurred version, but still noticeably softer
+      than the true original.
+    </p>
+  </section>
+
+  <!-- ===================== PART 2.2 ===================== -->
+  <section id="p2-2">
+    <h2>Part 2.2: Hybrid Images</h2>
+    <p>
+      A hybrid image sums the high frequencies of one image with the low frequencies of
+      another: <code>hybrid = (im1 &minus; G&circledast;im1) + G&circledast;im2</code>. Up close,
+      the high-frequency image dominates perception. From a distance, or squinting, only the
+      smooth low-frequency image survives. I aligned each pair using the provided
+      <code>align_image_code.py</code>, clicking two corresponding points per image myself.
+      Interactive alignment needs a real display, so this had to be done locally rather than
+      by an automated script.
+    </p>
+
+    <h3>Derek and Nutmeg (provided sample)</h3>
+    <p>I picked this as my favorite result, so it gets the full frequency analysis below.</p>
+    <div class="image-row">
+      <figure><img src="gallery/2_2_derek_nutmeg_im1_aligned.jpg" /><figcaption>Derek (aligned)</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_im2_aligned.jpg" /><figcaption>Nutmeg (aligned)</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_hybrid_gray.jpg" /><figcaption>hybrid (&sigma;<sub>1</sub>=&sigma;<sub>2</sub>=8)</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_hybrid_farview.jpg" /><figcaption>heavily downsampled, reads as Nutmeg</figcaption></figure>
+    </div>
+    <p>Fourier analysis of the process, showing the log magnitude of the 2D FFT:</p>
+    <div class="thumb-grid">
+      <figure><img src="gallery/2_2_derek_nutmeg_fft_im1.png" /><figcaption>FFT: Derek (input)</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_fft_im2.png" /><figcaption>FFT: Nutmeg (input)</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_fft_im1_highpass.png" /><figcaption>FFT: Derek, high-pass</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_fft_im2_lowpass.png" /><figcaption>FFT: Nutmeg, low-pass</figcaption></figure>
+      <figure><img src="gallery/2_2_derek_nutmeg_fft_hybrid.png" /><figcaption>FFT: hybrid result</figcaption></figure>
+    </div>
+    <p>
+      The high-pass spectrum clearly loses its bright center, since the low frequencies are
+      suppressed. The low-pass spectrum is almost entirely a small bright blob at the center,
+      since only low frequencies survive. The hybrid's spectrum is the sum of both. I chose the
+      cutoff frequencies (&sigma;=8 for both) by trial and error. They need to be low enough
+      that Nutmeg's shape still reads clearly when squinting, and high enough that Derek's face
+      is not blurred beyond recognition up close.
+    </p>
+
+    <h3>Cat and tiger</h3>
+    <p>This one is a morph between animals rather than a change of expression.</p>
+    <div class="image-row">
+      <figure><img src="gallery/2_2_cat_tiger_im1_aligned.jpg" /><figcaption>cat (aligned, high freq.)</figcaption></figure>
+      <figure><img src="gallery/2_2_cat_tiger_im2_aligned.jpg" /><figcaption>tiger (aligned, low freq.)</figcaption></figure>
+      <figure><img src="gallery/2_2_cat_tiger_hybrid_gray.jpg" /><figcaption>hybrid (&sigma;<sub>1</sub>=&sigma;<sub>2</sub>=18)</figcaption></figure>
+      <figure><img src="gallery/2_2_cat_tiger_hybrid_farview.jpg" /><figcaption>far away: the tiger's stripe pattern dominates</figcaption></figure>
+    </div>
+    <p>
+      Both images are public domain or Creative Commons licensed photos from Wikimedia Commons
+      (credits below). Close up, the cat's whiskers and green eyes read clearly. Squinting, or
+      viewing the image small, the tiger's converging forehead stripes and dark eye markings
+      take over instead.
+    </p>
+
+    <h3>Basketball and Earth (a partial failure)</h3>
+    <div class="image-row">
+      <figure><img src="gallery/2_2_basketball_earth_im1_aligned.jpg" /><figcaption>basketball (aligned, high freq.)</figcaption></figure>
+      <figure><img src="gallery/2_2_basketball_earth_im2_aligned.jpg" /><figcaption>Earth (aligned, low freq.)</figcaption></figure>
+      <figure><img src="gallery/2_2_basketball_earth_hybrid_gray.jpg" /><figcaption>hybrid (&sigma;<sub>1</sub>=20, &sigma;<sub>2</sub>=14)</figcaption></figure>
+      <figure><img src="gallery/2_2_basketball_earth_hybrid_farview.jpg" /><figcaption>far away</figcaption></figure>
+    </div>
+    <p class="note">
+      This one only partly works. A basketball's black seams are themselves fairly
+      low-frequency, since they are thick, smooth curves rather than fine texture. Even at a
+      high-pass cutoff of &sigma;=20 the seams survive into the high-frequency layer and keep
+      faintly showing through at a distance. They compete with Earth's cloud swirls instead of
+      disappearing the way Derek's fine facial detail does. A cleaner example would need a
+      high-frequency image whose defining features are actually fine-grained, like the leather
+      grain texture alone, rather than features that happen to be large but thin.
+    </p>
+
+    <h3>A mistake I made while aligning</h3>
+    <p>
+      I originally tried clicking a center point and an edge point for the round basketball
+      and Earth images, by analogy to clicking two eyes on a face. This broke the alignment.
+      The alignment code assumes the midpoint of your two points is the true feature center,
+      which is true for two eyes but not for a center-and-edge pair. The midpoint of a
+      center-and-edge pair is a point at half radius, not the ball's actual center. The fix was
+      to click two opposite edge points instead, the left rim and the right rim. That is the
+      correct equivalent of "left eye, right eye" for a round object.
+    </p>
+  </section>
+
+  <!-- ===================== PART 2.3 ===================== -->
+  <section id="p2-3">
+    <h2>Part 2.3: Gaussian and Laplacian Stacks</h2>
+    <p>
+      A stack is like a pyramid but without downsampling. Every level stays the same
+      resolution as the original. The Gaussian stack applies progressively more blur at each
+      level. The Laplacian stack takes the difference between consecutive Gaussian levels.
+      Its final level is just the last, most-blurred Gaussian level, so the whole stack sums
+      back to the original image exactly.
+    </p>
+    <pre><code class="language-python">def gaussian_stack(img, levels, sigma):
+    stack = [img]
+    for _ in range(1, levels):
+        stack.append(gaussian_blur(stack[-1], sigma))
+    return stack
+
+def laplacian_stack(gstack):
+    lstack = [gstack[i] - gstack[i + 1] for i in range(len(gstack) - 1)]
+    lstack.append(gstack[-1])
+    return lstack</code></pre>
+    <p>
+      I verified that summing the whole Laplacian stack reproduces the original image, to
+      within <code>7&times;10<sup>&minus;17</sup></code>, which is pure floating point roundoff.
+      Here it is applied to the apple and orange pair, recreating the gist of Szeliski
+      Figure 3.42.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/2_3_stacks_grid.png" alt="Gaussian and Laplacian stacks of apple and orange" />
+      <figcaption>Rows: stack level 0, 2, 4. Columns: Gaussian apple, Gaussian orange, Laplacian apple, Laplacian orange.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== PART 2.4 ===================== -->
+  <section id="p2-4">
+    <h2>Part 2.4: Multiresolution Blending</h2>
+    <p>
+      Blending two images with a hard-edged mask leaves an obvious seam. Multiresolution
+      blending instead blends the Laplacian stacks of both images separately at every
+      frequency band, weighted by a <em>Gaussian</em> stack of the mask. This makes the mask
+      itself progressively softer at coarser levels. A pyramid gets this softening for free as
+      the mask shrinks, but a stack has to blur the mask explicitly, since nothing shrinks.
+    </p>
+    <pre><code class="language-python">def blend(im1, im2, mask, levels, sigma):
+    g1, g2, gm = gaussian_stack(im1, ...), gaussian_stack(im2, ...), gaussian_stack(mask, ...)
+    l1, l2 = laplacian_stack(g1), laplacian_stack(g2)
+    blended_levels = [gm[i] * l1[i] + (1 - gm[i]) * l2[i] for i in range(levels)]
+    return sum(blended_levels)</code></pre>
+
+    <h3>The oraple (required demo)</h3>
+    <div class="image-row">
+      <figure><img src="gallery/2_4_oraple_result.jpg" /><figcaption>apple + orange, vertical seam</figcaption></figure>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/2_4_oraple_process.png" alt="oraple blending process" />
+      <figcaption>Masked inputs, per-level Laplacian contributions, and the final blend (Burt &amp; Adelson Fig. 10 style).</figcaption>
+    </div>
+
+    <h3>Lemon and lime (my own straight seam)</h3>
+    <div class="image-row">
+      <figure><img src="gallery/2_4_lemonlime_result.jpg" /><figcaption>lemon + lime, vertical seam</figcaption></figure>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/2_4_lemonlime_process.png" alt="lemon/lime blending process" />
+      <figcaption>Same vertical step-function mask idea, different fruit.</figcaption>
+    </div>
+
+    <h3>Eye and moon (my own irregular mask)</h3>
+    <p>
+      For the irregular mask requirement, I blended a photo of the full moon into a macro
+      shot of a human eye. The mask is circular, sized and centered exactly on the pupil, so
+      it is not a straight line at all.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/2_4_eyemoon_result.jpg" /><figcaption>moon blended into the pupil</figcaption></figure>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/2_4_eyemoon_process.png" alt="eye/moon blending process" />
+      <figcaption>The circular mask (top middle) is 1 outside the pupil (the eye shows), 0 inside (the moon shows).</figcaption>
+    </div>
+    <p class="note">
+      Image credits. These are stock images from Wikimedia Commons, used under their listed
+      licenses. Cat: Augustus Binu, CC BY-SA 3.0. Tiger: Steve Wilson, CC BY 2.0. Basketball:
+      Jaques, CC BY-SA 3.0. Earth (EPIC/DSCOVR): NASA Goddard, public domain. Lemon: Evan-Amos,
+      CC0. Lime: Ivar Leidus, CC BY-SA 4.0. Eye: Rapidreflex, CC BY-SA 4.0. Moon: NASA/JPL/USGS,
+      public domain.
+    </p>
+  </section>
+
+  <!-- ===================== REFLECTION ===================== -->
+  <section id="reflection">
+    <h2>Reflection</h2>
+    <p>
+      The idea that tied this whole project together for me was that every one of these
+      operations is really just addition or subtraction of frequency bands. Sharpening adds
+      back a high band. A hybrid image sums a high band from one photo with a low band from
+      another. Multiresolution blending sums per-band Laplacian images. Once I saw the unsharp
+      mask, the hybrid image formula, and the blending formula side by side, they stopped
+      looking like three separate tricks. They are the same idea, decomposing into frequency
+      bands and recombining them differently, applied three different ways. The basketball and
+      Earth failure case was a good reminder that "high frequency" and "low frequency" describe
+      the actual spatial frequency content of a signal, not how detailed something looks. A
+      feature can look small while still occupying a low frequency band if it is smooth and
+      broad, and that mismatch is exactly what broke the illusion there.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  CS 180 &nbsp;·&nbsp; University of California, Berkeley &nbsp;·&nbsp; Fall 2026
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>

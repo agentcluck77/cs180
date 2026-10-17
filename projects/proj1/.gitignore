@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project 1 data + outputs (do not commit large images)
+CS180_fa2026_proj1_data/
+data/
+out*.jpg
+output/

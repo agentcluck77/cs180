@@ -1,0 +1,6 @@
+Test image: (96, 96), kernel: (9, 9) (mode='same')
+4loop: 162.549 ms
+2loop: 0.652 ms
+scipy: 0.907 ms
+max|4loop - scipy| = 1.332e-15
+max|2loop - scipy| = 1.332e-15

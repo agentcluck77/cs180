@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proj 3, Part B: Flow Matching from Scratch · CS 180</title>
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+</head>
+<body>
+
+<header>
+  <img src="../cal_seal.svg" alt="UC Berkeley seal" class="header-seal" />
+  <h1>Project 3: Flow Models</h1>
+  <p>Part B: flow matching from scratch on MNIST &nbsp;·&nbsp; Fall 2026 &nbsp;·&nbsp; Aloysius</p>
+</header>
+
+<nav>
+  <a href="../index.html">Home</a>
+  <a href="../proj0/index.html">Proj 0</a>
+  <a href="../proj1/index.html">Proj 1</a>
+  <a href="../proj2/index.html">Proj 2</a>
+  <a href="index.html">Proj 3</a>
+</nav>
+
+<main>
+
+  <p style="font-family:'Helvetica Neue',sans-serif;font-size:0.9rem;">
+    <a href="index.html">&larr; Part A: Exploring the Power of Flow Models</a> &nbsp;|&nbsp;
+    <strong>Part B: Flow Matching from Scratch</strong> (this page)
+  </p>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>
+      Part A used a large pretrained flow model. Here I train small flow models myself, from
+      scratch, on MNIST. Both parts share a UNet backbone; Part 1 trains it as a single-step
+      Gaussian denoiser, and Part 2 turns it into a proper flow-matching model that can generate
+      digits from pure noise, first unconditionally conditioned only on time, then conditioned
+      on the digit class with classifier-free guidance.
+    </p>
+  </section>
+
+  <!-- ===================== 1.1 ===================== -->
+  <section id="b1-1">
+    <h2>Part 1.1: The UNet</h2>
+    <p>
+      A standard encoder/decoder UNet with skip connections: two downsampling blocks, a
+      flatten/unflatten bottleneck, two upsampling blocks, each upsampling step concatenated
+      with its matching skip connection.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/course_unconditional_arch.png" alt="Unconditional UNet architecture diagram" />
+      <figcaption>Unconditional UNet architecture (assignment page).</figcaption>
+    </div>
+    <p>
+      Built out of a handful of standard tensor ops (plain convs, strided convs for
+      downsampling, transposed convs for upsampling, and a flatten/unflatten pair at the
+      bottleneck), composed into <code>ConvBlock</code>/<code>DownBlock</code>/<code>UpBlock</code>.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/course_atomic_ops_new.png" alt="Diagram of the simple and composed UNet operations" />
+      <figcaption>The simple ops (Conv, DownConv, UpConv, Flatten, Unflatten, Concat) and the composed ops built from them (assignment page).</figcaption>
+    </div>
+    <pre><code class="language-python">class UnconditionalUNet(nn.Module):
+    def __init__(self, in_channels, num_hiddens):
+        super().__init__()
+        D = num_hiddens
+        self.conv0 = ConvBlock(in_channels, D)
+        self.down0 = DownBlock(D, D)
+        self.down1 = DownBlock(D, 2 * D)
+        self.flatten0 = Flatten()
+        self.unflatten0 = Unflatten(2 * D)
+        self.up0 = UpBlock(4 * D, D)
+        self.up1 = UpBlock(2 * D, D)
+        self.conv1 = ConvBlock(2 * D, D)
+        self.conv2d = nn.Conv2d(D, in_channels, 3, 1, 1)
+
+    def forward(self, x):
+        x0 = self.conv0(x)
+        x1 = self.down0(x0)
+        x2 = self.down1(x1)
+        b = self.unflatten0(self.flatten0(x2))
+        u1 = self.up0(torch.cat([x2, b], dim=1))
+        u2 = self.up1(torch.cat([x1, u1], dim=1))
+        u3 = torch.cat([u2, x0], dim=1)
+        return self.conv2d(self.conv1(u3))</code></pre>
+    <p>
+      Each <code>Conv</code>/<code>DownConv</code>/<code>UpConv</code> block is a single
+      convolution (or transposed convolution for upsampling) followed by BatchNorm and GELU;
+      <code>Flatten</code>/<code>Unflatten</code> collapse the 7&times;7 bottleneck down to a
+      single spatial point and back, with hidden width <code>D=128</code>.
+    </p>
+  </section>
+
+  <!-- ===================== 1.2 ===================== -->
+  <section id="b1-2">
+    <h2>Part 1.2: Training a Single-Step Denoiser</h2>
+    <p>
+      Train the UNet to map a noisy digit <code>z = x + &sigma;&epsilon;</code> straight back to
+      the clean digit <code>x</code>, at a fixed noise level <code>&sigma;=0.5</code>.
+    </p>
+    <table>
+      <thead><tr><th>Hyperparameter</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Batch size</td><td>256</td></tr>
+        <tr><td>Optimizer</td><td>Adam, lr = 1e-4</td></tr>
+        <tr><td>Hidden dim D</td><td>128</td></tr>
+        <tr><td>Epochs</td><td>5</td></tr>
+        <tr><td>Noise level &sigma;</td><td>0.5</td></tr>
+      </tbody>
+    </table>
+    <div class="gif-container">
+      <img src="gallery/b1_2_noising.png" alt="MNIST digits at seven noise levels" />
+      <figcaption>Same five digits at &sigma; = 0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/b1_2_loss.png" alt="training loss curve for the sigma=0.5 denoiser" />
+      <figcaption>Training MSE loss, 5 epochs.</figcaption>
+    </div>
+    <div class="image-row">
+      <figure><img src="gallery/b1_2_epoch1.png" /><figcaption>Epoch 1: clean / noisy / denoised</figcaption></figure>
+      <figure><img src="gallery/b1_2_epoch5.png" /><figcaption>Epoch 5: clean / noisy / denoised</figcaption></figure>
+    </div>
+    <p>By epoch 5 the strokes are noticeably cleaner and straighter than epoch 1, especially on the digits that still looked wobbly early on (the 4 and the 9).</p>
+
+    <h3>Out-of-Distribution Testing</h3>
+    <p>
+      The same &sigma;=0.5 denoiser applied to noise levels it never trained on, &sigma; &isin;
+      {0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0}.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/b1_2_ood.png" alt="out-of-distribution denoising across noise levels" />
+      <figcaption>Each pair of rows is one &sigma;: noisy input, then denoised output.</figcaption>
+    </div>
+    <p>
+      It generalizes gracefully below &sigma;=0.5 (barely any denoising needed) and holds up
+      reasonably even above it, up to &sigma;&asymp;0.8, past which strokes start thinning out
+      and digits occasionally drift toward the wrong class entirely.
+    </p>
+
+    <h3>Denoising Pure Noise</h3>
+    <p>
+      Same architecture and training recipe, but now the input is pure Gaussian noise
+      <code>z = &epsilon;</code> with no digit signal in it at all, forcing the network to predict
+      a clean digit from nothing.
+    </p>
+    <pre><code class="language-python">pn = UnconditionalUNet(1, hidden_dim).to(device)
+opt = torch.optim.Adam(pn.parameters(), lr=learning_rate)
+for epoch in range(num_epochs):
+    for images, _ in train_loader:
+        images = images.to(device)
+        loss = criterion(pn(torch.randn_like(images)), images)
+        opt.zero_grad(); loss.backward(); opt.step()</code></pre>
+    <div class="gif-container">
+      <img src="gallery/b1_2_pn_loss.png" alt="training loss curve for the pure-noise denoiser" />
+      <figcaption>Training MSE loss, 5 epochs.</figcaption>
+    </div>
+    <div class="image-row">
+      <figure><img src="gallery/b1_2_pn_epoch1.png" /><figcaption>Epoch 1</figcaption></figure>
+      <figure><img src="gallery/b1_2_pn_epoch5.png" /><figcaption>Epoch 5</figcaption></figure>
+    </div>
+    <p>
+      Every output is the same blurry, ambiguous blob, identical across all 10 held-out noise
+      draws, and barely changes between epoch 1 and epoch 5. This is exactly what MSE loss
+      predicts when the input carries zero information about which digit to produce: with no
+      signal to condition on, the loss-minimizing strategy is to output the pixel-wise average
+      of all training digits (roughly a 6/8/0-shaped smear, since those classes share the most
+      overlapping ink), rather than committing to any single class. The network isn't failing,
+      it's doing exactly what minimizing MSE under total uncertainty predicts.
+    </p>
+  </section>
+
+  <!-- ===================== 2.1 ===================== -->
+  <section id="b2-1">
+    <h2>Part 2.1: Time-Conditioned UNet</h2>
+    <p>
+      To train a true flow-matching model, the network needs to know <em>how far along</em> the
+      noise-to-data path it's looking at. I inject the (normalized) time <code>t</code> through
+      two small FC blocks that modulate the bottleneck and the first decoder block, multiplicatively.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/course_conditional_arch_fm.png" alt="Time-conditioned UNet architecture diagram" />
+      <figcaption>Time-conditioned UNet: the same backbone as above, with <code>t</code> passed through an <code>FCBlock</code> and multiplied into the bottleneck and first decoder block (assignment page).</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/course_fc_long.png" alt="FCBlock diagram: two linear layers with GELU" />
+      <figcaption>FCBlock: two linear layers with a GELU in between, mapping the scalar time (or one-hot class) into a per-channel modulation vector (assignment page).</figcaption>
+    </div>
+    <pre><code class="language-python">class FCBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_channels, out_channels), nn.GELU(),
+            nn.Linear(out_channels, out_channels))
+
+    def forward(self, x):
+        return self.net(x)
+
+class TimeConditionalUNet(nn.Module):
+    def __init__(self, in_channels, num_classes, num_hiddens):
+        super().__init__()
+        D = num_hiddens
+        # ... same conv/down/up/flatten blocks as UnconditionalUNet ...
+        self.fc1_t = FCBlock(1, 2 * D)
+        self.fc2_t = FCBlock(1, D)
+
+    def forward(self, x, t):
+        x0 = self.conv0(x); x1 = self.down0(x0); x2 = self.down1(x1)
+        t1 = self.fc1_t(t[:, None])[:, :, None, None]
+        t2 = self.fc2_t(t[:, None])[:, :, None, None]
+        b = self.unflat0(self.flat0(x2)) * t1
+        u1 = self.up0(torch.cat([b, x2], dim=1)) * t2
+        u2 = self.up1(torch.cat([u1, x1], dim=1))
+        return self.out(self.conv1(torch.cat([u2, x0], dim=1)))</code></pre>
+  </section>
+
+  <!-- ===================== 2.2 / 2.3 ===================== -->
+  <section id="b2-2">
+    <h2>Part 2.2&ndash;2.3: Training &amp; Sampling (Time-Conditioned)</h2>
+    <p>
+      Flow-matching loss: sample <code>t</code>, build <code>x_t = (1-t)x_0 + t&middot;x_1</code>
+      from random noise <code>x_0</code> and a real digit <code>x_1</code>, and regress the UNet's
+      output against the target flow <code>x_1 - x_0</code>. Sampling then integrates that
+      learned flow with Euler steps from pure noise at t=0 to t=1.
+    </p>
+    <pre><code class="language-python">def time_fm_forward(unet, x_1, num_ts):
+    x_0 = torch.randn_like(x_1)
+    t = torch.rand(x_1.shape[0], device=x_1.device)
+    t_ = t[:, None, None, None]
+    x_t = (1 - t_) * x_0 + t_ * x_1
+    return F.mse_loss(unet(x_t, t), x_1 - x_0)
+
+@torch.inference_mode()
+def time_fm_sample(unet, img_wh, num_ts, seed=0):
+    x = torch.randn(40, 1, *img_wh, generator=torch.Generator(device=device).manual_seed(seed), device=device)
+    for i in range(num_ts):
+        t = torch.full((40,), i / num_ts, device=device)
+        x = x + (1 / num_ts) * unet(x, t)
+    return x</code></pre>
+    <table>
+      <thead><tr><th>Hyperparameter</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Batch size</td><td>64</td></tr>
+        <tr><td>Optimizer</td><td>Adam, lr = 1e-2, ExponentialLR &gamma;=0.1<sup>1/10</sup></td></tr>
+        <tr><td>Hidden dim D</td><td>64</td></tr>
+        <tr><td>Epochs</td><td>10</td></tr>
+        <tr><td>Sampling steps</td><td>50 (Euler)</td></tr>
+      </tbody>
+    </table>
+    <div class="gif-container">
+      <img src="gallery/b2_2_loss.png" alt="time-conditioned flow matching training loss" />
+      <figcaption>Training loss, 10 epochs.</figcaption>
+    </div>
+    <div class="image-row">
+      <figure><img src="gallery/b2_3_epoch1.png" /><figcaption>Epoch 1</figcaption></figure>
+      <figure><img src="gallery/b2_3_epoch5.png" /><figcaption>Epoch 5</figcaption></figure>
+      <figure><img src="gallery/b2_3_epoch10.png" /><figcaption>Epoch 10</figcaption></figure>
+    </div>
+    <p>
+      With no class conditioning, the model generates whatever digit it wants at every one of
+      the 40 grid positions, there's no column-wise structure. At epoch 1 the strokes are shaky
+      and a few samples are ambiguous between two digits; by epoch 10 nearly every sample is a
+      clean, unambiguous digit, though the class distribution is whatever the model feels like
+      producing, not something I can control.
+    </p>
+  </section>
+
+  <!-- ===================== 2.4 ===================== -->
+  <section id="b2-4">
+    <h2>Part 2.4: Class-Conditioned UNet</h2>
+    <p>
+      Same architecture and diagram as the time-conditioned UNet above, just with a second
+      <code>FCBlock</code> branch running in parallel to the time branch. Add a second pair of
+      FC blocks that take a one-hot class vector, with 10% of training
+      examples having their class vector zeroed out (unconditional dropout), so the same network
+      can later serve as both the conditional and unconditional branch for classifier-free
+      guidance.
+    </p>
+    <pre><code class="language-python">c = F.one_hot(c, self.num_classes).float()
+if mask is not None:
+    c = c * mask[:, None]
+t1, c1 = self.fc1_t(t), self.fc1_c(c)
+t2, c2 = self.fc2_t(t), self.fc2_c(c)
+b  = c1 * self.unflat0(self.flat0(x2)) + t1
+u1 = c2 * self.up0(torch.cat([b, x2], dim=1)) + t2</code></pre>
+  </section>
+
+  <!-- ===================== 2.5 / 2.6 ===================== -->
+  <section id="b2-5">
+    <h2>Part 2.5&ndash;2.6: Training &amp; CFG Sampling (Class-Conditioned)</h2>
+    <p>
+      Classifier-free guidance at sampling time: evaluate the UNet once with the real class and
+      once with the class masked out, then extrapolate past the conditional prediction.
+    </p>
+    <pre><code class="language-python">def class_fm_forward(unet, x_1, c, p_uncond, num_ts):
+    x_0 = torch.randn_like(x_1)
+    t = torch.rand(x_1.shape[0], device=x_1.device)
+    t_ = t[:, None, None, None]
+    x_t = (1 - t_) * x_0 + t_ * x_1
+    mask = (torch.rand(x_1.shape[0], device=x_1.device) > p_uncond).float()
+    return F.mse_loss(unet(x_t, c, t, mask), x_1 - x_0)
+
+@torch.inference_mode()
+def class_fm_sample(unet, c, img_wh, num_ts, guidance_scale=5.0, seed=0):
+    x = torch.randn(c.shape[0], 1, *img_wh, device=device)
+    null_mask = torch.zeros(c.shape[0], device=device)
+    for i in range(num_ts):
+        t = torch.full((c.shape[0],), i / num_ts, device=device)
+        v_c = unet(x, c, t)
+        v_u = unet(x, c, t, null_mask)
+        v = v_u + guidance_scale * (v_c - v_u)
+        x = x + v / num_ts
+    return x</code></pre>
+    <table>
+      <thead><tr><th>Hyperparameter</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Batch size</td><td>64</td></tr>
+        <tr><td>Optimizer</td><td>Adam, lr = 1e-2 (scheduled) / 1e-3 (no-scheduler comparison)</td></tr>
+        <tr><td>Unconditional dropout</td><td>p = 0.1</td></tr>
+        <tr><td>Guidance scale &gamma;</td><td>5.0</td></tr>
+        <tr><td>Sampling steps</td><td>300 (Euler)</td></tr>
+      </tbody>
+    </table>
+    <div class="gif-container">
+      <img src="gallery/b2_5_loss.png" alt="class-conditioned flow matching training loss, scheduled" />
+      <figcaption>Training loss with the ExponentialLR scheduler, 10 epochs.</figcaption>
+    </div>
+    <p>Four samples of each digit 0&ndash;9 (left to right), same seed across checkpoints, guidance scale &gamma;=5.0, 300 Euler steps:</p>
+    <div class="image-row">
+      <figure><img src="gallery/b2_6_epoch1.png" /><figcaption>Epoch 1</figcaption></figure>
+      <figure><img src="gallery/b2_6_epoch5.png" /><figcaption>Epoch 5</figcaption></figure>
+      <figure><img src="gallery/b2_6_epoch10.png" /><figcaption>Epoch 10</figcaption></figure>
+    </div>
+    <p>
+      CFG makes the class label stick immediately, every column is already the right digit at
+      epoch 1, unlike the unconditional model in 2.3 which needed all 10 epochs to get
+      consistently legible. What improves with more training here is stroke quality: epoch 1's
+      8s and 2s are a bit wobbly, while epoch 10's digits are crisp and closer to real handwriting.
+    </p>
+
+    <h3>Removing the Scheduler</h3>
+    <p>
+      Same architecture, same 10 epochs, but a constant learning rate instead of
+      <code>ExponentialLR</code>. Dropping the decay schedule outright with the original 1e-2
+      learning rate made training visibly less stable (loss spikes late in training instead of
+      smoothly flattening), so I compensated by lowering the constant rate to <strong>1e-3</strong>,
+      roughly where the scheduled run's decayed rate ends up by the final epochs.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/b2_5_loss_nosched.png" alt="class-conditioned flow matching training loss, no scheduler" />
+      <figcaption>Training loss, constant lr=1e-3, 10 epochs.</figcaption>
+    </div>
+    <div class="image-row">
+      <figure><img src="gallery/b2_6_nosched_epoch1.png" /><figcaption>Epoch 1</figcaption></figure>
+      <figure><img src="gallery/b2_6_nosched_epoch5.png" /><figcaption>Epoch 5</figcaption></figure>
+      <figure><img src="gallery/b2_6_nosched_epoch10.png" /><figcaption>Epoch 10</figcaption></figure>
+    </div>
+    <p>
+      The loss curve is a touch noisier throughout (no decay to damp the step-to-step variance
+      late in training), but the final samples at epoch 10 are essentially as clean as the
+      scheduled run. A low constant learning rate recovers most of what the scheduler was buying,
+      the scheduler mainly helps the <em>early</em> epochs settle faster, which matters less once
+      you train for a fixed 10 epochs either way.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  CS 180 &nbsp;·&nbsp; University of California, Berkeley &nbsp;·&nbsp; Fall 2026
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>

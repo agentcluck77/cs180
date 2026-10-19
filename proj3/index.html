@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proj 3, Part A: Exploring the Power of Flow Models · CS 180</title>
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+</head>
+<body>
+
+<header>
+  <img src="../cal_seal.svg" alt="UC Berkeley seal" class="header-seal" />
+  <h1>Project 3: Flow Models</h1>
+  <p>Part A: exploring a pretrained flow model &nbsp;·&nbsp; Fall 2026 &nbsp;·&nbsp; Aloysius</p>
+</header>
+
+<nav>
+  <a href="../index.html">Home</a>
+  <a href="../proj0/index.html">Proj 0</a>
+  <a href="../proj1/index.html">Proj 1</a>
+  <a href="../proj2/index.html">Proj 2</a>
+  <a href="index.html">Proj 3</a>
+</nav>
+
+<main>
+
+  <p style="font-family:'Helvetica Neue',sans-serif;font-size:0.9rem;">
+    <strong>Part A: Exploring the Power of Flow Models</strong> (this page) &nbsp;|&nbsp;
+    <a href="partb.html">Part B: Flow Matching from Scratch &rarr;</a>
+  </p>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>
+      This part explores a <em>pretrained</em> text-to-image flow model (PixNerd-XXL-P16-T2I),
+      no training involved. A flow model learns a velocity field that moves a sample along a
+      straight line from pure Gaussian noise (t=0) to a clean image (t=1):
+      <code>x_t = (1-t)&epsilon; + t&middot;x_1</code>, with target velocity <code>x_1 - &epsilon;</code>.
+      Every exercise below boils down to evaluating this velocity field and integrating it with
+      the Euler method, just with different starting points, guidance, and tricks.
+    </p>
+  </section>
+
+  <!-- ===================== 1.1 ===================== -->
+  <section id="s1-1">
+    <h2>1.1 Constructing Noisy Training Inputs</h2>
+    <p>
+      Linear interpolation between a clean image and Gaussian noise. I reused the same noise
+      tensor at every <code>t</code> so the only thing changing across the row is the mixing
+      weight.
+    </p>
+    <pre><code class="language-python">def interpolate(image, noise, t):
+    return (1 - t) * noise + t * image</code></pre>
+    <div class="gif-container">
+      <img src="gallery/1_1_inputs.png" alt="original image and three noisy interpolations" />
+      <figcaption>My photo of Rocket Lab's Electron rocket at launch, clean and interpolated toward noise at t=0.25, 0.50, 0.75.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== 1.2 ===================== -->
+  <section id="s1-2">
+    <h2>1.2 Classical Denoising (Gaussian Blur Baseline)</h2>
+    <p>
+      Since <code>x_t = (1-t)&epsilon; + t&middot;x_1</code>, dividing by <code>t</code> restores
+      roughly the right amplitude before blurring the noise away:
+      <code>x&#770;_1 = G_&sigma;(x_t / t)</code>. I swept <code>&sigma; &isin; {1,2,4,8,16}</code>
+      and kept whichever minimized MSE against the known clean image.
+    </p>
+    <div class="image-row">
+      <figure><img src="gallery/1_2_blur_025.png" /><figcaption>t=0.25, best &sigma;=16</figcaption></figure>
+      <figure><img src="gallery/1_2_blur_050.png" /><figcaption>t=0.50, best &sigma;=8</figcaption></figure>
+      <figure><img src="gallery/1_2_blur_075.png" /><figcaption>t=0.75, best &sigma;=4</figcaption></figure>
+    </div>
+    <p>
+      At t=0.25 the amplitude correction alone isn't enough to recover anything but a vague
+      silhouette, Gaussian blur has no way to tell signal from noise, it just averages both away
+      together, and the optimal sigma has to be huge to wash out that much noise. As t grows
+      there's proportionally less noise to remove, so the optimal sigma shrinks and the blurred
+      result starts looking like an actual (soft) photo rather than a colored smudge.
+    </p>
+  </section>
+
+  <!-- ===================== 1.3 ===================== -->
+  <section id="s1-3">
+    <h2>1.3 One-Step Denoising</h2>
+    <p>
+      The pretrained model predicts a velocity <code>v_&theta;(x_t,t,c)</code> that points
+      toward the clean image, so a single step from <code>t</code> gets a much better estimate
+      than blurring: <code>x&#770;_1 = x_t + (1-t)v_&theta;(x_t,t,c)</code>.
+    </p>
+    <pre><code class="language-python">def one_step_denoise(x, t, condition, predict_velocity):
+    return x + (1 - t) * predict_velocity(x, t, condition)</code></pre>
+    <div class="image-row">
+      <figure><img src="gallery/1_3_onestep_025.png" /><figcaption>t=0.25</figcaption></figure>
+      <figure><img src="gallery/1_3_onestep_050.png" /><figcaption>t=0.50</figcaption></figure>
+      <figure><img src="gallery/1_3_onestep_075.png" /><figcaption>t=0.75</figcaption></figure>
+    </div>
+    <p>
+      Prompt "a high quality photo". Even at t=0.25, nearly all noise, a single model evaluation
+      recovers a sharp, plausible Electron, nothing like the corresponding blur result above at
+      the same t. The one-step estimate barely changes across t at all, the model is confident
+      about what it's looking at well before a human eye could tell.
+    </p>
+  </section>
+
+  <!-- ===================== 1.4 ===================== -->
+  <section id="s1-4">
+    <h2>1.4 Visualizing Velocity</h2>
+    <p>
+      What is the model actually predicting? I compared its update
+      <code>(1-t)v&#770;_t</code> against the true update needed to land exactly back on my
+      original image, <code>(1-t)v_gt = x_1 - x_t</code>, and visualized the per-pixel RGB RMS
+      error between them.
+    </p>
+    <pre><code class="language-python">def velocity_diagnostics(x_t, t, clean_image, epsilon, condition, predict_velocity):
+    predicted_update = (1 - t) * predict_velocity(x_t, t, condition)
+    ground_truth_update = (1 - t) * (clean_image - epsilon)
+    error_map = (predicted_update - ground_truth_update).pow(2).mean(dim=1).sqrt()
+    return predicted_update, ground_truth_update, error_map</code></pre>
+    <div class="gif-container">
+      <img src="gallery/1_4_velocity_025.png" alt="predicted vs ground-truth velocity update and error map, t=0.25" />
+      <figcaption>t = 0.25</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/1_4_velocity_050.png" alt="predicted vs ground-truth velocity update and error map, t=0.50" />
+      <figcaption>t = 0.50</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/1_4_velocity_075.png" alt="predicted vs ground-truth velocity update and error map, t=0.75" />
+      <figcaption>t = 0.75</figcaption>
+    </div>
+    <p>
+      At every t, the predicted and ground-truth updates look almost identical as flat gray
+      fields, since both are dominated by the same large injected noise term. The error map is
+      where the real signal shows up: it lights up exactly along the Electron's silhouette and
+      exhaust plume, the parts of the image the model can't recover exactly because it never saw
+      my specific noise draw, only the text prompt. That error band gets visibly fainter as t
+      increases, less noise was added in the first place, so there's less for the model to
+      disagree with the ground truth about.
+    </p>
+  </section>
+
+  <!-- ===================== 1.5 ===================== -->
+  <section id="s1-5">
+    <h2>1.5 Iterative Denoising with Euler Sampling</h2>
+    <p>
+      One step is a coarse estimate; many small steps trace the flow properly. I recompute the
+      velocity after every update and shorten the last step so the trajectory lands exactly on
+      t=1.
+    </p>
+    <pre><code class="language-python">def euler_sample(x_start, t_start, step_size, velocity):
+    x, t = x_start, float(t_start)
+    states = [(t, x.clone())]
+    n = 0
+    while t < 1 - 1e-9:
+        remaining = 1.0 - t
+        last = remaining <= step_size + 1e-9
+        h = remaining if last else step_size
+        x = x + h * velocity(x, t)
+        t = 1.0 if last else t + h
+        n += 1
+        if last or n % 5 == 0:
+            states.append((t, x.clone()))
+    return x, states</code></pre>
+    <p>
+      Sanity-checked against a constant velocity field first: starting at t=0, 0.5, and 0.93 with
+      h=0.02 produced exactly 50, 25, and 4 updates respectively, with the final state always
+      landing at t=1, before trusting it on the real model.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/1_5_trajectory.png" alt="Euler sampling trajectory from t=0.50 to t=1.00" />
+      <figcaption>25 Euler updates (h=0.02) denoising the t=0.50 input, shown every 5th step. The image sharpens gradually rather than jumping straight to a clean result the way the one-step estimate in 1.3 does.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/1_5_comparison.png" alt="comparison of original, blur, one-step, and Euler-sampled results" />
+      <figcaption>Same t=0.50 input, denoised four ways. Blur is clearly the worst, soft and discolored. One-step and 25-step Euler are both close to the original, Euler's exhaust plume and body shading are just slightly crisper, the extra steps buy a small but visible improvement over a single jump.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== 1.6 ===================== -->
+  <section id="s1-6">
+    <h2>1.6 Generating Images from Noise</h2>
+    <p>
+      Starting Euler sampling from pure noise at t=0 instead of a real image turns the denoiser
+      into a generator. Five independent seeds, prompt "a high quality photo", 50 steps.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/1_6_samples.png" alt="five images generated from pure noise" />
+      <figcaption>Seeds 180&ndash;184.</figcaption>
+    </div>
+    <p>
+      A generic prompt like "a high quality photo" has an obvious subject bias: all five samples
+      are close-up human portraits, not landscapes, objects, or anything else "high quality"
+      could plausibly describe. The model's training data must associate that phrase overwhelmingly
+      with professional portrait photography.
+    </p>
+  </section>
+
+  <!-- ===================== 2.1 ===================== -->
+  <section id="s2-1">
+    <h2>2.1 Classifier-Free Guidance</h2>
+    <p>
+      CFG pushes samples further in the direction the prompt already points, by extrapolating
+      away from the unconditional prediction: <code>v_cfg = v_c + w(v_c - v_u)</code>.
+    </p>
+    <pre><code class="language-python">def cfg_velocity(x, t, condition, w, predict_velocity, null_condition=''):
+    v_c = predict_velocity(x, t, condition)
+    v_u = predict_velocity(x, t, null_condition)
+    return v_c + w * (v_c - v_u)</code></pre>
+    <p>
+      I checked <code>w=0</code> reduces exactly to the ordinary conditional prediction before
+      trusting it, then generated the same five seeds as 1.6 with <code>w=7</code>.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/2_1_cfg.png" alt="five CFG-guided samples, same seeds as 1.6" />
+      <figcaption>Same seeds 180&ndash;184, w=7. Still portraits (same subject bias), but noticeably sharper detail and more consistent, studio-like lighting than the unguided samples in 1.6, CFG amplifies whatever the prompt already favors.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== 3.1 ===================== -->
+  <section id="s3-1">
+    <h2>3.1 Image-to-Image Editing</h2>
+    <p>
+      Add noise up to a starting time <code>t_start</code>, then Euler-sample with CFG back to
+      t=1. Earlier starting times (more noise added) give the model more freedom to deviate from
+      the original; later starting times mostly just denoise it back to itself.
+    </p>
+    <pre><code class="language-python">def edit(image, noise, t_start, condition, predict_velocity, w=7, step_size=0.02):
+    x = interpolate(image, noise, t_start)
+    velocity = lambda x, t: cfg_velocity(x, t, condition, w, predict_velocity, null_condition)
+    edited, _ = euler_sample(x, t_start, step_size, velocity)
+    return edited</code></pre>
+    <p>Seven starting times (0.02&ndash;0.50), prompt "a high quality photo", on the provided Campanile and two of my own photos.</p>
+    <div class="gif-container">
+      <img src="gallery/3_1_campanile.png" alt="Campanile edited at seven starting times" />
+      <figcaption>Campanile (provided).</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_1_my1.png" alt="Electron rocket photo edited at seven starting times" />
+      <figcaption>My photo of Rocket Lab's Electron.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_1_my2.png" alt="HMHS Britannic photo edited at seven starting times" />
+      <figcaption>My photo of the HMHS Britannic.</figcaption>
+    </div>
+    <p>
+      At t=0.02 the model barely sees the original at all, just enough noise is in there for it
+      to improvise a laptop, a couch, and ship-shaped scenes that share the Campanile and ships'
+      rough silhouettes. By t&ge;0.25 the geometry is fully locked back to the original.
+    </p>
+
+    <h3>Bonus: Hand-Drawn &amp; Web Images</h3>
+    <p>
+      Same procedure on a non-photographic image downloaded from the web and two of my own
+      drawings, to see the model project them onto the natural-image manifold. The two drawings
+      are a nod to <em>The Little Prince</em>: an elephant, and the hat-shaped snake that's
+      secretly a boa constrictor digesting one.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/3_1_web.png" alt="Hawker Hunter jet photo edited at seven starting times" />
+      <figcaption>Web image: a Hawker Hunter jet.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_1_drawing1.png" alt="hand-drawn elephant edited at seven starting times" />
+      <figcaption>My drawing of an elephant.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_1_drawing2.png" alt="hand-drawn snake edited at seven starting times" />
+      <figcaption>My drawing of the Little Prince's snake/hat.</figcaption>
+    </div>
+    <p>
+      The line-drawn elephant is nearly unchanged at every starting time, since a clean black
+      outline on white is already close to how the model "simplifies" photos toward, there just
+      isn't much noise-only room to hallucinate into. The jet photo, by contrast, gets fully
+      reinvented into unrelated objects (a laptop, a sofa, pillows) at the smallest starting
+      times before converging back to a jet.
+    </p>
+  </section>
+
+  <!-- ===================== 3.2 ===================== -->
+  <section id="s3-2">
+    <h2>3.2 Text-Guided Image Editing</h2>
+    <p>
+      Same editing procedure as 3.1, but swap the generic prompt for a custom one per image.
+      Same seven starting times.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/3_2_campanile.png" alt="Campanile edited toward a hospital ship, seven starting times" />
+      <figcaption>Campanile &rarr; "a photograph of a vertically inverted hospital ship". At t=0.02&ndash;0.06 the tower genuinely becomes a ship's bow; the vertical silhouette is shared geometry the model can reuse.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_2_my1.png" alt="Electron rocket edited toward a Starship, seven starting times" />
+      <figcaption>My Electron photo &rarr; "a Starship". The launch plume survives at every starting time, it's exactly the kind of low-level structure large t preserves, while the rocket body becomes increasingly sci-fi.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_2_my2.png" alt="HMHS Britannic edited toward the HMS Titanic, seven starting times" />
+      <figcaption>HMHS Britannic &rarr; "the HMS Titanic!". Close enough in subject matter (both are famous ocean liners) that even the small starting times stay recognizably ship-shaped.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== 3.3 ===================== -->
+  <section id="s3-3">
+    <h2>3.3 Visual Anagrams</h2>
+    <p>
+      Average the CFG velocity for prompt A with the 180&deg;-rotated CFG velocity for prompt B
+      (evaluated on the rotated image, then rotated back), and Euler-sample with that averaged
+      field from pure noise. The result looks like subject A right-side up and subject B upside
+      down.
+    </p>
+    <pre><code class="language-python">def visual_anagrams(noise, condition_a, condition_b, predict_velocity, w=7, step_size=0.02):
+    def velocity(x, t):
+        v_a = cfg_velocity(x, t, condition_a, w, predict_velocity, null_condition)
+        v_b = rotate180(cfg_velocity(rotate180(x), t, condition_b, w, predict_velocity, null_condition))
+        return (v_a + v_b) / 2
+    x, _ = euler_sample(noise, 0, step_size, velocity)
+    return x</code></pre>
+    <p>
+      Checked <code>rotate180(rotate180(x)) == x</code> before relying on it as an involution.
+    </p>
+    <div class="gif-container">
+      <img src="gallery/3_3_anagrams_0.png" alt="visual anagram: old man upright, campfire scene rotated 180 degrees" />
+      <figcaption>"an oil painting of an old man" / "an oil painting of people around a campfire". Both panels are the exact same pixels, the second is just the first rotated 180&deg;, the man's furrowed brow and beard become the fire and the huddled figures around it.</figcaption>
+    </div>
+    <div class="gif-container">
+      <img src="gallery/3_3_anagrams_1.png" alt="visual anagram: snowy mountain village upright, horse rotated 180 degrees" />
+      <figcaption>"a lithograph of a snowy mountain village" / "a lithograph of a horse". The village's rooftops and the mountain peak behind them become the horse's mane and head when flipped.</figcaption>
+    </div>
+  </section>
+
+  <!-- ===================== 3.4 ===================== -->
+  <section id="s3-4">
+    <h2>3.4 Hybrid Images</h2>
+    <p>
+      Low-pass the CFG velocity for the "far away" prompt and high-pass the CFG velocity for the
+      "close up" prompt, then sum them before each Euler update, so the sample is pulled toward
+      prompt A's coarse structure and prompt B's fine detail at the same time.
+    </p>
+    <pre><code class="language-python">def make_hybrids(noise, condition_a, condition_b, predict_velocity, w=7, step_size=0.02):
+    def velocity(x, t):
+        v_a = cfg_velocity(x, t, condition_a, w, predict_velocity, null_condition)
+        v_b = cfg_velocity(x, t, condition_b, w, predict_velocity, null_condition)
+        return lowpass(v_a) + v_b - lowpass(v_b)
+    x, _ = euler_sample(noise, 0, step_size, velocity)
+    return x</code></pre>
+    <p>Two prompt pairs, distant (low-pass) prompt listed first:</p>
+    <div class="image-row">
+      <figure><img src="gallery/3_4_hybrid0_full.png" /><figcaption>close up: "a lithograph of a waterfall"</figcaption></figure>
+      <figure><img src="gallery/3_4_hybrid0_thumb.png" /><figcaption>distant: "a lithograph of a skull"</figcaption></figure>
+    </div>
+    <div class="image-row">
+      <figure><img src="gallery/3_4_hybrid1_full.png" /><figcaption>close up: "a lithograph of a forest"</figcaption></figure>
+      <figure><img src="gallery/3_4_hybrid1_thumb.png" /><figcaption>distant: "a lithograph of a cat"</figcaption></figure>
+    </div>
+    <p>
+      Up close both read entirely as the high-frequency prompt, a waterfall scene and a stand of
+      trees respectively, with no obvious skull or cat hiding in them. Shrunk down to thumbnail
+      size, the low-frequency prompt takes over: the waterfall's dark cliff face and pale falling
+      water resolve into a skull's eye sockets and jaw, and the three tree trunks collapse into a
+      cat's face, two "ears" from the outer trees and a muzzle from the gap between them.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  CS 180 &nbsp;·&nbsp; University of California, Berkeley &nbsp;·&nbsp; Fall 2026
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>
